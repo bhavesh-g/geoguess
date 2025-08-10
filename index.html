@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>GeoGuess - Guess the Hidden Location (B&W)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --color-bg: #fff;
+    --color-text: #000;
+    --color-primary: #000;
+    --color-success: #388e3c; /* green guess markers */
+    --color-error: #d32f2f; /* red lines */
+    --color-accent: #000;
+    --color-muted: #444;
+    --transition-fast: 0.2s ease-in-out;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-bg: #000;
+      --color-text: #fff;
+      --color-primary: #fff;
+      --color-success: #66bb6a;
+      --color-error: #ef5350;
+      --color-accent: #fff;
+      --color-muted: #bbb;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0; padding: 0;
+    font-family: 'Poppins', sans-serif;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    user-select: none;
+  }
+
+  #app {
+    max-width: 520px;
+    margin: 0 auto 2rem auto;
+    padding: 1.5rem 1rem 2rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  header img {
+    width: 42px;
+    height: 42px;
+    filter: none;
+    user-select: none;
+  }
+
+  header h1 {
+    font-weight: 600;
+    font-size: 1.5rem;
+    margin: 0;
+    color: var(--color-text);
+    user-select: none;
+  }
+
+  #map {
+    width: 100vw;
+    max-width: 520px;
+    height: 65vw; 
+    max-height: 400px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgb(0 0 0 / 0.15);
+    transition: box-shadow var(--transition-fast);
+    background: var(--color-bg);
+  }
+
+  #map:hover {
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+  }
+
+  button {
+    cursor: pointer;
+    background-color: var(--color-bg);
+    border: 1.5px solid var(--color-text);
+    color: var(--color-text);
+    font-weight: 600;
+    padding: 0.6em 1.4em;
+    font-size: 1rem;
+    border-radius: 8px;
+    transition: background-color var(--transition-fast), box-shadow var(--transition-fast), color var(--transition-fast);
+    user-select: none;
+    box-shadow: none;
+    text-shadow: none;
+  }
+
+  button:disabled {
+    border-color: var(--color-muted);
+    color: var(--color-muted);
+    cursor: not-allowed;
+    background-color: var(--color-bg);
+    box-shadow: none;
+  }
+
+  button:not(:disabled):hover {
+    background-color: var(--color-text);
+    color: var(--color-bg);
+    box-shadow: 0 0 6px var(--color-text);
+  }
+
+  button:not(:disabled):focus-visible {
+    outline: 2px solid var(--color-text);
+    outline-offset: 2px;
+  }
+
+  #share-link {
+    font-family: monospace;
+    font-size: 0.9rem;
+    word-break: break-all;
+    background: var(--color-bg);
+    color: var(--color-text);
+    padding: 0.5em 0.8em;
+    border: 1px solid var(--color-text);
+    border-radius: 7px;
+    user-select: all;
+  }
+
+  #guesses {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-top: 0.5em;
+    user-select: none;
+    color: var(--color-text);
+  }
+
+  .status {
+    margin-top: 0.3em;
+    font-weight: 500;
+    font-size: 0.9rem;
+    min-height: 1.2em;
+    color: var(--color-text);
+  }
+
+  /* Marker Sharp Pin Icon style and animation */
+  .sharp-marker svg {
+    filter: none;
+    transition: transform 0.3s ease;
+    fill: var(--color-text);
+  }
+
+  /* Pulse animation on newly added marker */
+  .sharp-marker.pulse svg {
+    animation: pulse-scale 1.3s ease-in-out;
+    stroke: var(--color-text);
+    stroke-width: 1.2px;
+  }
+
+  @keyframes pulse-scale {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+  }
+
+  /* Distance label style for text on lines */
+  .dist-label div {
+    background: rgba(0, 0, 0, 0.75); /* dark background */
+    border-radius: 8px;
+    padding: 2px 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff; /* white text */
+    text-shadow: none;
+    pointer-events: none;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  /* Responsive tweaks */
+  @media (max-width: 600px) {
+    #app {
+      padding: 1rem 0.5rem 1.5rem 0.5rem;
+    }
+    #map {
+      height: 75vw;
+    }
+  }
+
+  /* Focus states for accessibility */
+  button:focus-visible {
+    outline: 3px solid var(--color-text);
+    outline-offset: 3px;
+  }
+</style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <img src="https://cdn-icons-png.flaticon.com/512/854/854878.png" alt="GeoGuess Logo" aria-hidden="true" />
+      <h1>GeoGuess</h1>
+    </header>
+
+    <div id="game" role="main" aria-live="polite" aria-atomic="true" aria-relevant="additions removals"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // Obfuscation key and functions
+    const OBF_KEY = "LocationSecretGame2025!";
+
+    function strToUint8(s) {
+      return Uint8Array.from(s.split('').map(c => c.charCodeAt(0)));
+    }
+    function xorEnc(arr, key) {
+      let out = [], k = strToUint8(key);
+      for(let i=0; i < arr.length; i++) out[i] = arr[i] ^ k[i % k.length];
+      return out;
+    }
+    function safeEncode(lat, lng) {
+      let salt = Math.floor(Math.random() * 1e9).toString(36);
+      let coords = `${lat.toFixed(6)},${lng.toFixed(6)},${salt}`;
+      let u8 = strToUint8(coords);
+      let obf = xorEnc(u8, OBF_KEY);
+      return btoa(String.fromCharCode(...obf));
+    }
+    function safeDecode(code) {
+      try {
+        let obf = atob(code).split('').map(c => c.charCodeAt(0));
+        let arr = xorEnc(obf, OBF_KEY);
+        let [lat, lng] = String.fromCharCode(...arr).split(',', 2);
+        return [parseFloat(lat), parseFloat(lng)];
+      } catch {
+        return null;
+      }
+    }
+
+    const maxGuesses = 10;
+    const winThreshold = 50000; // 50 km
+
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("c");
+    const isGuesser = !!code;
+    const gameDiv = document.getElementById("game");
+
+    let map, marker, secretPoint;
+    let guessCount = 0, won = false;
+    let linesLayer, markersLayer;
+    let guessPts = [];
+    let distMarkers = [];
+    let distTimer = null;
+
+    if(!isGuesser) {
+      setupSetter();
+    } else {
+      secretPoint = safeDecode(code);
+      if(!secretPoint || isNaN(secretPoint[0]) || isNaN(secretPoint[1])) {
+        Swal.fire({title:"Error", text:"Invalid or corrupted link.", icon:"error"});
+        gameDiv.innerHTML = "";
+      } else {
+        setupGuesser();
+      }
+    }
+
+    function isMobile() { return window.innerWidth < 700; }
+    function centerStart() { return [20, 0]; }
+
+    function showAlert(opts) {
+      Swal.fire(opts);
+    }
+    function showToast(opts) {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        timer: 2300,
+        timerProgressBar: true,
+        showConfirmButton: false,
+        ...opts
+      });
+    }
+
+    function sharpIcon(color = "var(--color-success)", pulse = false) {
+      // Use specified color, default green for guesses
+      const pulseClass = pulse ? 'pulse' : '';
+      return L.divIcon({
+        className: `sharp-marker ${pulseClass}`,
+        html: `<svg width="34" height="48" viewBox="0 0 32 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" role="img">
+          <path d="M16 0C24.4 0 32 7 32 16c0 9.8-12.6 28.7-13.1 29.4a2 2 0 0 1-3.8 0C12.6 44.7 0 25.8 0 16 0 7 7.6 0 16 0Z" fill="${color}"/>
+          <circle cx="16" cy="16" r="6" fill="#fff"/>
+        </svg>`,
+        iconSize: [34, 48],
+        iconAnchor: [17, 46]
+      });
+    }
+
+    function toKm(m) {
+      return (m/1000).toFixed(2);
+    }
+
+    function haversine(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const toRad = Math.PI / 180;
+      let dLat = (lat2 - lat1) * toRad;
+      let dLon = (lon2 - lon1) * toRad;
+      let a = Math.sin(dLat/2)**2 + Math.cos(lat1*toRad)*Math.cos(lat2*toRad)*Math.sin(dLon/2)**2;
+      return 2*R*Math.asin(Math.sqrt(a));
+    }
+
+    function offsetMidpoint(p1, p2, px = 0.06) {
+      let lat1 = p1[0], lng1 = p1[1], lat2 = p2[0], lng2 = p2[1];
+      let lat = (lat1 + lat2) / 2, lng = (lng1 + lng2) / 2;
+      let dx = lat2 - lat1, dy = lng2 - lng1;
+      let norm = Math.sqrt(dx*dx + dy*dy);
+      if(norm === 0) return [lat, lng];
+      let ox = -dy / norm * px;
+      let oy = dx / norm * px;
+      return [lat + ox, lng + oy];
+    }
+
+    function setupSetter() {
+      gameDiv.innerHTML = `
+        <p>Step 1: Mark a secret spot on the world map.<br>Step 2: Share the generated link with a friend!</p>
+        <div id="map" role="application" aria-label="World map to mark hidden location"></div>
+        <button id="setBtn" disabled aria-disabled="true" aria-describedby="desc-setPointBtn">Set Hidden Point</button>
+        <div id="share-link" style="display:none" aria-live="polite" aria-label="Generated shareable link"></div>
+        <button id="copyBtn" style="display:none">Copy Link</button>
+        <div id="desc-setPointBtn" style="display:none">Activate this button to generate a shareable link for the marked location</div>
+      `;
+      initMap(true);
+
+      const setBtn = document.getElementById("setBtn");
+      const copyBtn = document.getElementById("copyBtn");
+      const shareLinkDiv = document.getElementById("share-link");
+
+      setBtn.onclick = () => {
+        const {lat, lng} = marker.getLatLng();
+        const url = `${location.origin}${location.pathname}?c=${safeEncode(lat, lng)}`;
+        shareLinkDiv.innerText = url;
+        shareLinkDiv.style.display = "block";
+        copyBtn.style.display = "inline-block";
+        setBtn.setAttribute("aria-disabled", "true");
+        setBtn.disabled = true;
+        showAlert({title: "Link Generated!", text: "Copy and share this link with your friend to start the game.", icon: "info"});
+      };
+
+      copyBtn.onclick = () => {
+        const txt = shareLinkDiv.innerText;
+        navigator.clipboard.writeText(txt).then(() => {
+          showToast({icon: "success", title: "Link copied to clipboard!"});
+        });
+      };
+    }
+
+    function setupGuesser() {
+      gameDiv.innerHTML = `
+        <p>Try to <b>guess the hidden location</b> your friend marked!<br/>
+        You have 10 attempts. Click the map to make each guess.<br/>
+        Connect the dots to visualize your search path.</p>
+        <div id="map" role="application" aria-label="World map for guessing location"></div>
+        <div id="guesses" aria-live="polite" aria-atomic="true"></div>
+        <div class="status" id="statusmsg" aria-live="polite" aria-atomic="true"></div>
+      `;
+
+      markersLayer = L.layerGroup();
+      linesLayer = L.layerGroup();
+      guessCount = 0; won = false;
+      guessPts = [];
+      distMarkers.forEach(m => m.remove());
+      distMarkers = [];
+      if(distTimer) clearTimeout(distTimer);
+      distTimer = null;
+
+      initMap(false);
+      updateGuesses();
+
+      map.on('click', function(e) {
+        if (won || guessCount >= maxGuesses) return;
+        guessCount++;
+        const guess = [e.latlng.lat, e.latlng.lng];
+        guessPts.push(guess);
+        const dist = map.distance(e.latlng, L.latLng(secretPoint));
+        let markerGuess = L.marker(guess, {icon: sharpIcon("var(--color-success)", true), title: `Guess #${guessCount}`})
+          .bindPopup(`Guess #${guessCount}<br>Distance: ${toKm(dist)} km`);
+        markersLayer.addLayer(markerGuess);
+        markerGuess.openPopup();
+
+        drawLines();
+
+        if (dist <= winThreshold) {
+          won = true;
+          onGuessedSuccess();
+        } else if (guessCount >= maxGuesses) {
+          onGuessedFail(dist);
+        } else {
+          showToast({icon:"info", title:`Guess #${guessCount}: ${toKm(dist)} km away`});
+          document.getElementById("statusmsg").innerText =
+            `Guess #${guessCount}: ${toKm(dist)} km from the hidden point. ${maxGuesses - guessCount} attempts left.`;
+        }
+        updateGuesses();
+      });
+    }
+
+    function drawLines() {
+      linesLayer.clearLayers();
+      distMarkers.forEach(m => map.removeLayer(m));
+      distMarkers = [];
+      if(distTimer) clearTimeout(distTimer);
+      distTimer = null;
+      if(guessPts.length < 2) return;
+
+      let latlngs = guessPts.map(pt => L.latLng(pt[0], pt[1]));
+      L.polyline(latlngs, {color: 'var(--color-error)', weight: 2.5, opacity: 0.85, smoothFactor: 1}).addTo(linesLayer);
+
+      for(let i = 1; i < guessPts.length; i++) {
+        let p1 = guessPts[i-1], p2 = guessPts[i];
+        let distKM = haversine(p1[0],p1[1],p2[0],p2[1]) / 1000;
+        let labelText = `${distKM.toFixed(1)} km`;
+        let labelPos = offsetMidpoint(p1,p2, 0.07);
+
+        let distIcon = L.divIcon({
+          className: 'dist-label',
+          html: `<div>${labelText}</div>`,
+          iconSize: [55, 22],
+          iconAnchor: [27, 11]
+        });
+
+        let labelMarker = L.marker(labelPos, {icon: distIcon, interactive: false, keyboard: false, zIndexOffset: 600}).addTo(map);
+        distMarkers.push(labelMarker);
+      }
+
+      // Auto-remove distance labels after 3 seconds
+      distTimer = setTimeout(() => {
+        distMarkers.forEach(m => map.removeLayer(m));
+        distMarkers = [];
+      }, 3000);
+    }
+
+    function updateGuesses() {
+      const gdiv = document.getElementById('guesses');
+      if(gdiv) gdiv.innerHTML = `<b>Guesses:</b> ${guessCount} / ${maxGuesses}`;
+    }
+
+    function onGuessedSuccess() {
+      L.marker(secretPoint, {icon: sharpIcon("var(--color-accent)", true)}).addTo(map)
+        .bindPopup("🎉 Correct! This was the hidden spot!").openPopup();
+      showAlert({
+        title: "Congratulations!",
+        text: "You found the hidden location within 50 km!",
+        icon: "success"
+      });
+      document.getElementById("statusmsg").innerText = "Congratulations! You found the hidden location.";
+    }
+
+    function onGuessedFail(dist) {
+      L.marker(secretPoint, {icon: sharpIcon("var(--color-error)", true)}).addTo(map)
+        .bindPopup("Game Over! This was the hidden spot.").openPopup();
+      showAlert({
+        title: "Out of Attempts",
+        text: `You did not guess within 50 km. The hidden location was ${toKm(dist)} km from your last guess.`,
+        icon: "error"
+      });
+      document.getElementById("statusmsg").innerText = `Game Over. Last guess was ${toKm(dist)} km from the answer.`;
+    }
+
+    function initMap(isSetter) {
+      if(map) {
+        map.off();
+        map.remove();
+      }
+      map = L.map('map', {zoomControl:true, attributionControl:false}).setView(centerStart(), isMobile() ? 2 : 2);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 10,
+        minZoom: 2,
+        attribution: '&copy; <a href="https://openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors'
+      }).addTo(map);
+
+      if (!isSetter) {
+        markersLayer.addTo(map);
+        linesLayer.addTo(map);
+      } else {
+        map.on('click', function(e) {
+          if(marker) map.removeLayer(marker);
+          marker = L.marker(e.latlng, {
+            icon: sharpIcon("var(--color-text)"),
+            draggable: true,
+            title: "Secret Point"
+          }).addTo(map);
+          document.getElementById("setBtn").disabled = false;
+          document.getElementById("setBtn").setAttribute("aria-disabled", "false");
+          showToast({icon:"info", title:"Pin set! You can drag it to adjust."});
+        });
+      }
+    }
+  </script>
+</body>
+</html>
